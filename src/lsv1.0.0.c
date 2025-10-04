@@ -1,4 +1,3 @@
-/* src/lsv1.0.0.c  (update your existing file with these functions) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,27 +8,40 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
-#include <sys/ioctl.h>   // ioctl, TIOCGWINSZ
-#include <sys/types.h>
+#include <sys/ioctl.h>
 
 extern int errno;
 
-void do_ls(const char *dir, int long_listing);
+// --- Display Modes ---
+enum DisplayMode {
+    DEFAULT_MODE,       // down then across
+    LONG_MODE,          // -l
+    HORIZONTAL_MODE     // -x
+};
+
+// --- Function Prototypes ---
+void do_ls(const char *dir, enum DisplayMode mode);
 void display_long(const char *path, const char *filename);
-void display_columns_default(const char *dir); // new
+void display_columns_default(const char *dir);
+void display_horizontal(const char *dir);
 char **read_dir_filenames(const char *dir, int *count, int *maxlen);
 
+// --- MAIN FUNCTION ---
 int main(int argc, char *argv[]) {
     int opt;
-    int long_listing = 0;
+    enum DisplayMode mode = DEFAULT_MODE;
 
-    while ((opt = getopt(argc, argv, "l")) != -1) {
+    // Parse command-line arguments (-l, -x)
+    while ((opt = getopt(argc, argv, "lx")) != -1) {
         switch (opt) {
             case 'l':
-                long_listing = 1;
+                mode = LONG_MODE;
+                break;
+            case 'x':
+                mode = HORIZONTAL_MODE;
                 break;
             default:
-                fprintf(stderr, "Usage: %s [-l] [dir]\n", argv[0]);
+                fprintf(stderr, "Usage: %s [-l | -x] [dir]\n", argv[0]);
                 exit(EXIT_FAILURE);
         }
     }
@@ -38,36 +50,35 @@ int main(int argc, char *argv[]) {
     if (optind < argc)
         dir = argv[optind];
 
-    do_ls(dir, long_listing);
-
+    do_ls(dir, mode);
     return 0;
 }
 
-/* Top-level listing function: calls either long listing or default column display */
-void do_ls(const char *dir, int long_listing) {
-    if (long_listing) {
-        /* Read and print each entry in long format (previous logic) */
-        struct dirent *entry;
+// --- MAIN LOGIC HANDLER ---
+void do_ls(const char *dir, enum DisplayMode mode) {
+    if (mode == LONG_MODE) {
         DIR *dp = opendir(dir);
-        if (dp == NULL) {
+        struct dirent *entry;
+        if (!dp) {
             fprintf(stderr, "Cannot open directory: %s\n", dir);
             return;
         }
-        errno = 0;
         while ((entry = readdir(dp)) != NULL) {
             if (entry->d_name[0] == '.')
                 continue;
             display_long(dir, entry->d_name);
         }
-        if (errno != 0) perror("readdir failed");
         closedir(dp);
-    } else {
-        /* Default behavior: multi-column "down then across" display */
+    } 
+    else if (mode == HORIZONTAL_MODE) {
+        display_horizontal(dir);
+    } 
+    else {
         display_columns_default(dir);
     }
 }
 
-/* --- Long listing function (same as before) --- */
+// --- LONG LISTING FORMAT (-l) ---
 void display_long(const char *path, const char *filename) {
     struct stat fileStat;
     char fullpath[1024];
@@ -75,14 +86,14 @@ void display_long(const char *path, const char *filename) {
     struct group *gr;
 
     snprintf(fullpath, sizeof(fullpath), "%s/%s", path, filename);
-
     if (lstat(fullpath, &fileStat) < 0) {
         perror("lstat");
         return;
     }
 
-    /* File type + permission bits */
+    // File type
     printf((S_ISDIR(fileStat.st_mode)) ? "d" : "-");
+    // Permissions
     printf((fileStat.st_mode & S_IRUSR) ? "r" : "-");
     printf((fileStat.st_mode & S_IWUSR) ? "w" : "-");
     printf((fileStat.st_mode & S_IXUSR) ? "x" : "-");
@@ -93,118 +104,108 @@ void display_long(const char *path, const char *filename) {
     printf((fileStat.st_mode & S_IWOTH) ? "w" : "-");
     printf((fileStat.st_mode & S_IXOTH) ? "x" : "-");
 
+    // Links
     printf(" %ld", fileStat.st_nlink);
 
+    // User and group names
     pw = getpwuid(fileStat.st_uid);
     gr = getgrgid(fileStat.st_gid);
     printf(" %-8s %-8s", pw ? pw->pw_name : "?", gr ? gr->gr_name : "?");
 
-    printf(" %8ld", fileStat.st_size);
+    // Size
+    printf(" %8ld ", fileStat.st_size);
 
+    // Time
     char timebuf[80];
     strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", localtime(&fileStat.st_mtime));
-    printf(" %s %s\n", timebuf, filename);
+    printf("%s ", timebuf);
+
+    // Filename
+    printf("%s\n", filename);
 }
 
-/* --------- New: read directory into dynamic array of strings --------- 
-   Returns a malloc'd array of char* and sets count and maxlen.
-   Caller must free each string and the array.
-*/
+// --- READ FILENAMES INTO ARRAY ---
 char **read_dir_filenames(const char *dir, int *count, int *maxlen) {
     DIR *dp = opendir(dir);
     struct dirent *entry;
-    if (!dp) {
-        fprintf(stderr, "Cannot open directory: %s\n", dir);
-        *count = 0;
-        *maxlen = 0;
-        return NULL;
-    }
+    if (!dp) return NULL;
 
     size_t capacity = 64;
     char **names = malloc(capacity * sizeof(char *));
-    if (!names) {
-        perror("malloc");
-        closedir(dp);
-        *count = 0;
-        *maxlen = 0;
-        return NULL;
-    }
+    int n = 0, maxl = 0;
 
-    int n = 0;
-    int maxl = 0;
-    errno = 0;
     while ((entry = readdir(dp)) != NULL) {
-        if (entry->d_name[0] == '.')
-            continue;
-        int len = (int)strlen(entry->d_name);
+        if (entry->d_name[0] == '.') continue;
+        int len = strlen(entry->d_name);
         if (len > maxl) maxl = len;
-
         if (n >= (int)capacity) {
             capacity *= 2;
-            char **tmp = realloc(names, capacity * sizeof(char *));
-            if (!tmp) { perror("realloc"); break; }
-            names = tmp;
+            names = realloc(names, capacity * sizeof(char *));
         }
-        names[n] = strdup(entry->d_name);
-        if (!names[n]) { perror("strdup"); break; }
-        n++;
+        names[n++] = strdup(entry->d_name);
     }
-    if (errno != 0) perror("readdir failed");
-
     closedir(dp);
-
     *count = n;
     *maxlen = maxl;
     return names;
 }
 
-/* --------- New: display in columns, "down then across" ---------
-   Algorithm:
-   - get terminal width (ioctl); fallback to 80
-   - compute column width = maxlen + spacing
-   - compute cols = terminal_width / col_width (>=1)
-   - rows = ceil(n / cols)
-   - print row by row: for r in [0..rows-1], for c in [0..cols-1]:
-       index = c*rows + r
-       if index < n print names[index] padded to col_width
-*/
+// --- DEFAULT: DOWN-THEN-ACROSS DISPLAY ---
 void display_columns_default(const char *dir) {
-    int nfiles = 0;
-    int maxlen = 0;
-    char **names = read_dir_filenames(dir, &nfiles, &maxlen);
-    if (!names || nfiles == 0) {
-        if (names) free(names);
-        return;
-    }
+    int n = 0, maxlen = 0;
+    char **names = read_dir_filenames(dir, &n, &maxlen);
+    if (!names || n == 0) return;
 
-    /* Get terminal width */
     struct winsize w;
-    int term_width = 80; /* fallback */
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
-        term_width = w.ws_col;
-    }
+    int width = 80;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
+        width = w.ws_col;
 
-    int spacing = 2; /* spaces between columns */
+    int spacing = 2;
     int col_width = maxlen + spacing;
-    if (col_width <= 0) col_width = 1;
-
-    int cols = term_width / col_width;
+    int cols = width / col_width;
     if (cols < 1) cols = 1;
+    int rows = (n + cols - 1) / cols;
 
-    int rows = (nfiles + cols - 1) / cols; /* ceil */
-
-    /* Print row by row */
-    for (int r = 0; r < rows; ++r) {
-        for (int c = 0; c < cols; ++c) {
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
             int idx = c * rows + r;
-            if (idx >= nfiles) continue;
-            printf("%-*s", col_width, names[idx]); /* left align, pad to col_width */
+            if (idx >= n) continue;
+            printf("%-*s", col_width, names[idx]);
         }
         printf("\n");
     }
 
-    /* free memory */
-    for (int i = 0; i < nfiles; ++i) free(names[i]);
+    for (int i = 0; i < n; i++) free(names[i]);
+    free(names);
+}
+
+// --- HORIZONTAL (-x) DISPLAY ---
+void display_horizontal(const char *dir) {
+    int n = 0, maxlen = 0;
+    char **names = read_dir_filenames(dir, &n, &maxlen);
+    if (!names || n == 0) return;
+
+    struct winsize w;
+    int width = 80;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
+        width = w.ws_col;
+
+    int spacing = 2;
+    int col_width = maxlen + spacing;
+    int current_width = 0;
+
+    for (int i = 0; i < n; i++) {
+        if (current_width + col_width > width) {
+            printf("\n");
+            current_width = 0;
+        }
+        printf("%-*s", col_width, names[i]);
+        current_width += col_width;
+    }
+    printf("\n");
+
+    for (int i = 0; i < n; i++) free(names[i]);
     free(names);
 }
 
