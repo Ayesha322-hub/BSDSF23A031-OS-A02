@@ -12,6 +12,14 @@
 
 extern int errno;
 
+// --- ANSI COLOR CODES ---
+#define COLOR_RESET   "\033[0m"
+#define COLOR_BLUE    "\033[0;34m"   // directories
+#define COLOR_GREEN   "\033[0;32m"   // executables
+#define COLOR_RED     "\033[0;31m"   // compressed/tar
+#define COLOR_PINK    "\033[1;35m"   // symbolic links
+#define COLOR_REVERSE "\033[7m"      // special files
+
 enum DisplayMode {
     DEFAULT_MODE,
     LONG_MODE,
@@ -20,10 +28,11 @@ enum DisplayMode {
 
 void do_ls(const char *dir, enum DisplayMode mode);
 void display_long(const char *path, const char *filename);
-void display_columns_default(char **names, int n, int maxlen);
-void display_horizontal(char **names, int n, int maxlen);
+void display_columns_default(char **names, int n, int maxlen, const char *dir);
+void display_horizontal(char **names, int n, int maxlen, const char *dir);
 char **read_dir_filenames(const char *dir, int *count, int *maxlen);
-int compare_names(const void *a, const void *b);   // NEW
+int compare_names(const void *a, const void *b);
+void print_colorized(const char *dir, const char *filename); // NEW
 
 int main(int argc, char *argv[]) {
     int opt;
@@ -58,6 +67,36 @@ int compare_names(const void *a, const void *b) {
     return strcmp(name1, name2);
 }
 
+/* --- Color Printing Helper --- */
+void print_colorized(const char *dir, const char *filename) {
+    struct stat fileStat;
+    char fullpath[1024];
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, filename);
+
+    if (lstat(fullpath, &fileStat) < 0) {
+        perror("lstat");
+        printf("%s", filename);
+        return;
+    }
+
+    const char *color = COLOR_RESET;
+
+    if (S_ISDIR(fileStat.st_mode)) {
+        color = COLOR_BLUE;
+    } else if (S_ISLNK(fileStat.st_mode)) {
+        color = COLOR_PINK;
+    } else if (S_ISCHR(fileStat.st_mode) || S_ISBLK(fileStat.st_mode) ||
+               S_ISSOCK(fileStat.st_mode) || S_ISFIFO(fileStat.st_mode)) {
+        color = COLOR_REVERSE;
+    } else if (fileStat.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+        color = COLOR_GREEN;
+    } else if (strstr(filename, ".tar") || strstr(filename, ".gz") || strstr(filename, ".zip")) {
+        color = COLOR_RED;
+    }
+
+    printf("%s%s%s", color, filename, COLOR_RESET);
+}
+
 /* --- Core LS Logic --- */
 void do_ls(const char *dir, enum DisplayMode mode) {
     int n = 0, maxlen = 0;
@@ -68,9 +107,9 @@ void do_ls(const char *dir, enum DisplayMode mode) {
         for (int i = 0; i < n; i++)
             display_long(dir, names[i]);
     } else if (mode == HORIZONTAL_MODE) {
-        display_horizontal(names, n, maxlen);
+        display_horizontal(names, n, maxlen, dir);
     } else {
-        display_columns_default(names, n, maxlen);
+        display_columns_default(names, n, maxlen, dir);
     }
 
     for (int i = 0; i < n; i++) free(names[i]);
@@ -106,10 +145,12 @@ void display_long(const char *path, const char *filename) {
     gr = getgrgid(fileStat.st_gid);
     printf(" %-8s %-8s %8ld ", pw ? pw->pw_name : "?", gr ? gr->gr_name : "?", fileStat.st_size);
 
-
     char timebuf[80];
     strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", localtime(&fileStat.st_mtime));
-    printf("%s %s\n", timebuf, filename);
+    printf("%s ", timebuf);
+
+    print_colorized(path, filename); // color for -l output too
+    printf("\n");
 }
 
 /* --- Read Filenames + Sort --- */
@@ -134,16 +175,14 @@ char **read_dir_filenames(const char *dir, int *count, int *maxlen) {
     }
     closedir(dp);
 
-    /* 🔹 Sort the filenames alphabetically using qsort() */
     qsort(names, n, sizeof(char *), compare_names);
-
     *count = n;
     *maxlen = maxl;
     return names;
 }
 
-/* --- Default (Down Then Across) --- */
-void display_columns_default(char **names, int n, int maxlen) {
+/* --- Default: Down Then Across --- */
+void display_columns_default(char **names, int n, int maxlen, const char *dir) {
     struct winsize w;
     int width = 80;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
@@ -159,14 +198,16 @@ void display_columns_default(char **names, int n, int maxlen) {
         for (int c = 0; c < cols; c++) {
             int idx = c * rows + r;
             if (idx >= n) continue;
-            printf("%-*s", col_width, names[idx]);
+            print_colorized(dir, names[idx]);
+            int len = strlen(names[idx]);
+            for (int s = 0; s < col_width - len; s++) printf(" ");
         }
         printf("\n");
     }
 }
 
 /* --- Horizontal (-x) --- */
-void display_horizontal(char **names, int n, int maxlen) {
+void display_horizontal(char **names, int n, int maxlen, const char *dir) {
     struct winsize w;
     int width = 80;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
@@ -181,9 +222,10 @@ void display_horizontal(char **names, int n, int maxlen) {
             printf("\n");
             current_width = 0;
         }
-        printf("%-*s", col_width, names[i]);
+        print_colorized(dir, names[i]);
+        int len = strlen(names[i]);
+        for (int s = 0; s < col_width - len; s++) printf(" ");
         current_width += col_width;
     }
     printf("\n");
 }
-
