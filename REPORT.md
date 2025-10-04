@@ -30,3 +30,15 @@ S_ISDIR checks if the file is a directory.
 S_IRUSR, S_IWUSR, and S_IXUSR check if the owner has read, write, and execute permissions.
 
 This method helps us interpret the file’s type and permissions from the st_mode value in a clear way.
+
+Feature 3 — Column Display (down then across)
+
+Q1 — Explain the logic for printing items in "down then across" columnar format. Why is a simple single loop insufficient?
+
+Answer:
+The "down then across" layout fills each column top-to-bottom before moving to the next column. To do that correctly you must know how many rows each column will have beforehand. That means you first read and store all filenames and find the longest filename. With the number of files and the number of columns (based on terminal width) you can compute the number of rows as rows = ceil(nfiles / cols). After this, to print row 0 you print names[0], names[rows], names[2*rows], ... For row 1 you print names[1], names[1+rows], etc. A single linear loop over filename array prints left-to-right across rows instead of down each column, so it won’t produce the desired ordering or alignment. Precomputing rows/columns is necessary.
+
+Q2 — What is the purpose of ioctl here? What are limitations of using a fixed-width fallback?
+
+Answer:
+ioctl with TIOCGWINSZ lets the program ask the terminal how many columns wide it is. Using that real width allows our program to pack as many columns as fit and to reflow the output if the user resizes the terminal. If we always used a fixed width like 80 columns, the layout could look wrong on narrow or very wide terminals — either wrapping too early or leaving lots of unused space. Using ioctl makes the output adapt to the actual environment and gives a much better user experience.
