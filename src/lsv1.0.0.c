@@ -12,26 +12,23 @@
 
 extern int errno;
 
-// --- Display Modes ---
 enum DisplayMode {
-    DEFAULT_MODE,       // down then across
-    LONG_MODE,          // -l
-    HORIZONTAL_MODE     // -x
+    DEFAULT_MODE,
+    LONG_MODE,
+    HORIZONTAL_MODE
 };
 
-// --- Function Prototypes ---
 void do_ls(const char *dir, enum DisplayMode mode);
 void display_long(const char *path, const char *filename);
-void display_columns_default(const char *dir);
-void display_horizontal(const char *dir);
+void display_columns_default(char **names, int n, int maxlen);
+void display_horizontal(char **names, int n, int maxlen);
 char **read_dir_filenames(const char *dir, int *count, int *maxlen);
+int compare_names(const void *a, const void *b);   // NEW
 
-// --- MAIN FUNCTION ---
 int main(int argc, char *argv[]) {
     int opt;
     enum DisplayMode mode = DEFAULT_MODE;
 
-    // Parse command-line arguments (-l, -x)
     while ((opt = getopt(argc, argv, "lx")) != -1) {
         switch (opt) {
             case 'l':
@@ -54,31 +51,33 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-// --- MAIN LOGIC HANDLER ---
-void do_ls(const char *dir, enum DisplayMode mode) {
-    if (mode == LONG_MODE) {
-        DIR *dp = opendir(dir);
-        struct dirent *entry;
-        if (!dp) {
-            fprintf(stderr, "Cannot open directory: %s\n", dir);
-            return;
-        }
-        while ((entry = readdir(dp)) != NULL) {
-            if (entry->d_name[0] == '.')
-                continue;
-            display_long(dir, entry->d_name);
-        }
-        closedir(dp);
-    } 
-    else if (mode == HORIZONTAL_MODE) {
-        display_horizontal(dir);
-    } 
-    else {
-        display_columns_default(dir);
-    }
+/* --- Comparison Function for qsort() --- */
+int compare_names(const void *a, const void *b) {
+    const char *name1 = *(const char **)a;
+    const char *name2 = *(const char **)b;
+    return strcmp(name1, name2);
 }
 
-// --- LONG LISTING FORMAT (-l) ---
+/* --- Core LS Logic --- */
+void do_ls(const char *dir, enum DisplayMode mode) {
+    int n = 0, maxlen = 0;
+    char **names = read_dir_filenames(dir, &n, &maxlen);
+    if (!names || n == 0) return;
+
+    if (mode == LONG_MODE) {
+        for (int i = 0; i < n; i++)
+            display_long(dir, names[i]);
+    } else if (mode == HORIZONTAL_MODE) {
+        display_horizontal(names, n, maxlen);
+    } else {
+        display_columns_default(names, n, maxlen);
+    }
+
+    for (int i = 0; i < n; i++) free(names[i]);
+    free(names);
+}
+
+/* --- Long Listing --- */
 void display_long(const char *path, const char *filename) {
     struct stat fileStat;
     char fullpath[1024];
@@ -91,9 +90,7 @@ void display_long(const char *path, const char *filename) {
         return;
     }
 
-    // File type
     printf((S_ISDIR(fileStat.st_mode)) ? "d" : "-");
-    // Permissions
     printf((fileStat.st_mode & S_IRUSR) ? "r" : "-");
     printf((fileStat.st_mode & S_IWUSR) ? "w" : "-");
     printf((fileStat.st_mode & S_IXUSR) ? "x" : "-");
@@ -104,27 +101,18 @@ void display_long(const char *path, const char *filename) {
     printf((fileStat.st_mode & S_IWOTH) ? "w" : "-");
     printf((fileStat.st_mode & S_IXOTH) ? "x" : "-");
 
-    // Links
     printf(" %ld", fileStat.st_nlink);
-
-    // User and group names
     pw = getpwuid(fileStat.st_uid);
     gr = getgrgid(fileStat.st_gid);
-    printf(" %-8s %-8s", pw ? pw->pw_name : "?", gr ? gr->gr_name : "?");
+    printf(" %-8s %-8s %8ld ", pw ? pw->pw_name : "?", gr ? gr->gr_name : "?", fileStat.st_size);
 
-    // Size
-    printf(" %8ld ", fileStat.st_size);
 
-    // Time
     char timebuf[80];
     strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", localtime(&fileStat.st_mtime));
-    printf("%s ", timebuf);
-
-    // Filename
-    printf("%s\n", filename);
+    printf("%s %s\n", timebuf, filename);
 }
 
-// --- READ FILENAMES INTO ARRAY ---
+/* --- Read Filenames + Sort --- */
 char **read_dir_filenames(const char *dir, int *count, int *maxlen) {
     DIR *dp = opendir(dir);
     struct dirent *entry;
@@ -145,17 +133,17 @@ char **read_dir_filenames(const char *dir, int *count, int *maxlen) {
         names[n++] = strdup(entry->d_name);
     }
     closedir(dp);
+
+    /* 🔹 Sort the filenames alphabetically using qsort() */
+    qsort(names, n, sizeof(char *), compare_names);
+
     *count = n;
     *maxlen = maxl;
     return names;
 }
 
-// --- DEFAULT: DOWN-THEN-ACROSS DISPLAY ---
-void display_columns_default(const char *dir) {
-    int n = 0, maxlen = 0;
-    char **names = read_dir_filenames(dir, &n, &maxlen);
-    if (!names || n == 0) return;
-
+/* --- Default (Down Then Across) --- */
+void display_columns_default(char **names, int n, int maxlen) {
     struct winsize w;
     int width = 80;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
@@ -175,17 +163,10 @@ void display_columns_default(const char *dir) {
         }
         printf("\n");
     }
-
-    for (int i = 0; i < n; i++) free(names[i]);
-    free(names);
 }
 
-// --- HORIZONTAL (-x) DISPLAY ---
-void display_horizontal(const char *dir) {
-    int n = 0, maxlen = 0;
-    char **names = read_dir_filenames(dir, &n, &maxlen);
-    if (!names || n == 0) return;
-
+/* --- Horizontal (-x) --- */
+void display_horizontal(char **names, int n, int maxlen) {
     struct winsize w;
     int width = 80;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
@@ -204,8 +185,5 @@ void display_horizontal(const char *dir) {
         current_width += col_width;
     }
     printf("\n");
-
-    for (int i = 0; i < n; i++) free(names[i]);
-    free(names);
 }
 
