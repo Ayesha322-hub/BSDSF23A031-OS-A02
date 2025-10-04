@@ -1,3 +1,4 @@
+feature-long-listing-v1.1.0
 REPORT.md – Feature 2
 Question 1
 
@@ -25,6 +26,7 @@ if (fileStat.st_mode & S_IRUSR)
 
 
 Here:
+
 S_ISDIR checks if the file is a directory.
 
 S_IRUSR, S_IWUSR, and S_IXUSR check if the owner has read, write, and execute permissions.
