@@ -57,3 +57,16 @@ S_IRUSR, S_IWUSR, and S_IXUSR check if the owner has read, write, and execute pe
 
 This method helps us interpret the file’s type and permissions from the st_mode value in a clear way.
 
+Feature 5 — Alphabetical Sort
+
+Q1: Why is it necessary to read all directory entries into memory before you can sort them? What are the possible drawbacks for very large directories?
+
+Answer:
+To sort the filenames, the program must first have all of them in memory so it can compare and reorder them. Sorting requires random access to the whole list, which isn’t possible if we only read files one by one while printing.
+The drawback is that if a directory contains millions of files, storing all names at once can use a lot of memory and make the program slower. For small or normal-sized directories this is fine, but very large ones could cause performance or memory issues.
+
+Q2: Explain the purpose and signature of the comparison function used by qsort(). Why must it take const void * arguments?
+
+Answer:
+qsort() is a generic sort function that can sort any data type. It doesn’t know that our data are strings, so it calls a custom comparison function for each pair of items.
+Our function takes two const void * pointers, converts them to char **, and uses strcmp() to decide their alphabetical order. The const void * type makes the function flexible and safe—it tells the compiler that the data being compared won’t be changed, and it allows qsort() to work with any kind of array.
