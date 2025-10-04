@@ -70,3 +70,30 @@ Q2: Explain the purpose and signature of the comparison function used by qsort()
 Answer:
 qsort() is a generic sort function that can sort any data type. It doesn’t know that our data are strings, so it calls a custom comparison function for each pair of items.
 Our function takes two const void * pointers, converts them to char **, and uses strcmp() to decide their alphabetical order. The const void * type makes the function flexible and safe—it tells the compiler that the data being compared won’t be changed, and it allows qsort() to work with any kind of array.
+
+
+Feature 6 — Colorized Output
+
+Q1: How do ANSI escape codes work to produce color in a standard Linux terminal? Show the specific code for printing text in green.
+
+Answer:
+ANSI escape codes are short control sequences that tell the terminal to change text color or style.
+They usually start with \033[ followed by numbers and end with m.
+For example, to print green text, we can use:
+
+printf("\033[0;32mHello\033[0m");
+
+
+Here \033[0;32m sets the color to green, and \033[0m resets it back to normal after printing.
+
+Q2: To color an executable file, which bits in st_mode need to be checked?
+
+Answer:
+To know if a file is executable, we check the execute permission bits in the st_mode field:
+
+S_IXUSR → executable by the file owner
+
+S_IXGRP → executable by the group
+
+S_IXOTH → executable by others
+If any of these bits are set, it means the file can be run, so we print it in green.
