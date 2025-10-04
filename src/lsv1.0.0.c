@@ -14,28 +14,36 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 extern int errno;
 
 void do_ls(const char *dir);
 
-int main(int argc, char const *argv[])
-{
-    if (argc == 1)
-    {
-        do_ls(".");
-    }
-    else
-    {
-        for (int i = 1; i < argc; i++)
-        {
-            printf("Directory listing of %s : \n", argv[i]);
-            do_ls(argv[i]);
-	    puts("");
+int main(int argc, char *argv[]) {
+    int opt;
+    int long_listing = 0;
+
+    // Parse command-line options
+    while ((opt = getopt(argc, argv, "l")) != -1) {
+        switch (opt) {
+            case 'l':
+                long_listing = 1;
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-l]\n", argv[0]);
+                exit(EXIT_FAILURE);
         }
     }
+
+    if (long_listing)
+        printf("Long listing (-l) option detected.\n");
+    else
+        printf("Normal listing (no -l).\n");
+
     return 0;
 }
+
 
 void do_ls(const char *dir)
 {
