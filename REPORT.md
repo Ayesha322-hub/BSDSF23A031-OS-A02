@@ -29,6 +29,30 @@ Here:
 
 S_ISDIR checks if the file is a directory.
 
+Feature 3 - Coulmn Display
+
+Q1: Printing Items “Down Then Across”
+
+In the “down then across” format, the items are printed column by column instead of row by row. For example, if you have 6 items and 3 rows, the output looks like this:
+
+Item1  Item3  Item5
+Item2  Item4  Item6
+
+
+A single loop through the list won’t work because it prints items in order from start to end, which fills rows first, not columns. To print down then across, we need to calculate which item goes in which row and column, usually using nested loops or some math based on the number of rows and columns.
+
+Q2: Purpose of ioctl
+
+The ioctl system call is used to find out the size of the terminal (how many rows and columns it has). This helps the program decide how many columns can fit on the screen.
+
+If we just used a fixed width like 80 columns:
+The output might wrap incorrectly if the terminal is smaller.
+It would waste space if the terminal is larger.
+
+Overall, the display wouldn’t adapt to different terminal sizes, making it look messy.
+
+Using ioctl ensures the column layout fits neatly on any terminal.
+
 Feature 4 — Horizontal Column Display (-x Option)
 
 Q1: Compare the implementation complexity of the “down then across” format and the “across” (horizontal) format. Which one needs more pre-calculation, and why?
@@ -96,4 +120,19 @@ S_IXUSR → executable by the file owner
 S_IXGRP → executable by the group
 
 S_IXOTH → executable by others
+
+Feature 7 - Recursive listing
+
+Q1: Base Case in a Recursive Function
+
+A base case is the condition that stops a recursive function from calling itself forever. It’s like the “exit point” for the recursion.
+
+In our recursive ls, the base case happens when the function encounters a file or an empty directory. At that point, it does not make any further recursive calls, which prevents an infinite loop.
+
+Q2: Why Construct the Full Path
+
+When making a recursive call, we need the full path like "parent_dir/subdir" instead of just "subdir".
+
+If we only used "subdir", the program would look for that folder in the current working directory, not inside the parent directory. This would cause errors or the program would miss files in nested folders. Using the full path ensures the function correctly finds and lists all files in subdirectories.
 If any of these bits are set, it means the file can be run, so we print it in green.
+
